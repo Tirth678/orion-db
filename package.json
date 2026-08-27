@@ -1,5 +1,5 @@
 {
-  "name": "super-votes",
+  "name": "orion-db",
   "private": true,
   "scripts": {
     "dev:api": "pnpm --filter api start:dev",
