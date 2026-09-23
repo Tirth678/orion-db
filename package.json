@@ -7,6 +7,7 @@
     "dev": "concurrently \"pnpm dev:api\" \"pnpm dev:web\""
   },
   "devDependencies": {
+    "@neon/config": "^1.7.2",
     "concurrently": "^10.0.5"
   }
 }

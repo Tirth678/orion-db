@@ -1,7 +1,10 @@
-
 {
   "name": "@orion-db/types",
   "version": "0.0.1",
   "private": true,
-  "main": "./src/index.ts"
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
+    "postgres": "^3.4.9"
+  }
 }

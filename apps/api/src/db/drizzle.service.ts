@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { drizzle } from 'drizzle-orm/neon-http';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
 import * as schema from './schema';
 
 @Injectable()
@@ -16,6 +17,8 @@ export class DrizzleService implements OnModuleInit {
         'DATABASE_URL is not defined in the environment variables.',
       );
     }
-    this.db = drizzle(databaseUrl, { schema });
+    // Disable prefetch as it is not supported for "Transaction" pool mode
+    const client = postgres(databaseUrl, { prepare: false });
+    this.db = drizzle(client, { schema });
   }
 }

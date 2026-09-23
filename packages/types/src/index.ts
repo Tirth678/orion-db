@@ -54,4 +54,18 @@ export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
 }
+export interface JwtPayload {
+  sub: string;
+  email: string;
+}
+
+export type OAuthProvider = 'google' | 'github';
+
+export interface OAuthProfile {
+  provider: OAuthProvider;
+  providerAccountId: string;
+  email: string;
+  name?: string | null;
+  avatarUrl?: string | null;
+}
 
