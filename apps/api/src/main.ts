@@ -13,7 +13,7 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api'); // /api/....
 
-  app.useGlobalPipes(
+  app.useGlobalPipes( // strip non required data
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,

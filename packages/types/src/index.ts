@@ -139,7 +139,7 @@ export interface CreateTableInput {
   columns: CreateColumnInput[];
 }
 
-// API DOCS
+
 export interface ProjectApiEndpoint {
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   path: string;
@@ -163,7 +163,7 @@ export interface ProjectBySlugResponse {
   org_members: OrgMember;
 }
 
-// SQL EDITOR
+
 export interface QueryResult {
   rows: Record<string, unknown>[];
   columns: string[];
@@ -192,7 +192,7 @@ export interface RealtimeEvent {
   timestamp: string;
 }
 
-// Storage
+
 export type BucketAccess = 'public' | 'private';
 
 export interface StorageBucket {
@@ -218,7 +218,7 @@ export interface CreateBucketInput {
   name: string;
   access: BucketAccess;
 }
-// AUTH
+
 export interface ProjectAuthUser {
   id: string;
   email: string;

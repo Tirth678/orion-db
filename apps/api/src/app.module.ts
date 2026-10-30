@@ -17,7 +17,7 @@ import { ProjectAuthModule } from './project-auth/project-auth.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
-      isGlobal: true,
+      isGlobal: true, 
     }),
     DbModule,
     AuthModule,
