@@ -32,11 +32,20 @@ export class ProjectAuthController {
   }
 
   @Get('magic-link/verify')
-  verifyMagicLink(
+  async verifyMagicLink(
     @Param('projectSlug') projectSlug: string,
     @Query('token') token: string,
+    @Res() res: Response,
   ) {
-    return this.projectAuthService.verifyMagicLink(projectSlug, token);
+    const result = await this.projectAuthService.verifyMagicLink(
+      projectSlug,
+      token,
+    );
+    const siteUrl =
+      await this.projectAuthService.getSiteUrlForProject(projectSlug);
+    return res.redirect(
+      this.buildAuthRedirectUrl(siteUrl, result.accessToken),
+    );
   }
 
   @Get('google')
@@ -59,7 +68,7 @@ export class ProjectAuthController {
     return res.redirect(url);
   }
 
-  private buildOAuthRedirectUrl(siteUrl: string, accessToken: string): string {
+  private buildAuthRedirectUrl(siteUrl: string, accessToken: string): string {
     const fragmentParams = new URLSearchParams({
       access_token: accessToken,
       token_type: 'bearer',
@@ -86,7 +95,7 @@ export class ProjectAuthController {
     );
     const webUrl =
       await this.projectAuthService.getSiteUrlForProject(projectSlug);
-    return res.redirect(this.buildOAuthRedirectUrl(webUrl, result.accessToken));
+    return res.redirect(this.buildAuthRedirectUrl(webUrl, result.accessToken));
   }
 
   @Get('github')
@@ -121,6 +130,6 @@ export class ProjectAuthController {
     );
     const webUrl =
       await this.projectAuthService.getSiteUrlForProject(projectSlug);
-    return res.redirect(this.buildOAuthRedirectUrl(webUrl, result.accessToken));
+    return res.redirect(this.buildAuthRedirectUrl(webUrl, result.accessToken));
   }
 }
