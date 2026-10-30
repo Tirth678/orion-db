@@ -202,8 +202,9 @@ export function StorageClient({
 
                 <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                   <DialogTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-6 w-6">
-                      <Plus size={12} />
+                    <Button variant="outline" size="sm" className="h-7 gap-1">
+                      <Plus size={14} />
+                      New bucket
                     </Button>
                   </DialogTrigger>
                   <DialogContent>
