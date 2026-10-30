@@ -60,6 +60,19 @@ function getApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 }
 
+async function assertResponseOk(res: Response, fallback: string) {
+  if (res.ok) return;
+  let message = fallback;
+  try {
+    const body = (await res.json()) as { message?: string | string[] };
+    if (typeof body.message === 'string') message = body.message;
+    else if (Array.isArray(body.message)) message = body.message.join(', ');
+  } catch {
+    // Keep the fallback when the response is not JSON.
+  }
+  throw new Error(message);
+}
+
 export function StorageClient({
   orgSlug,
   projectSlug,
@@ -73,6 +86,8 @@ export function StorageClient({
   const [objects, setObjects] = useState<StorageObject[]>(initialObjects);
   const [loadingObjects, setLoadingObjects] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [objectFilter, setObjectFilter] = useState('');
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newBucketName, setNewBucketName] = useState('');
@@ -106,16 +121,34 @@ export function StorageClient({
     return `${storageBase}/buckets/${activeBucket.id}/upload`;
   }, [storageBase, activeBucket]);
 
+  const filteredObjects = useMemo(() => {
+    const query = objectFilter.trim().toLowerCase();
+    if (!query) return objects;
+    return objects.filter((object) =>
+      object.name.toLowerCase().includes(query),
+    );
+  }, [objects, objectFilter]);
+
   const loadObjects = useCallback(
     async (bucket: StorageBucket) => {
       setActiveBucket(bucket);
       setLoadingObjects(true);
+      setError(null);
+      setObjectFilter('');
       try {
         const res = await fetch(`${storageBase}/buckets/${bucket.id}/objects`, {
           credentials: 'include',
         });
+        await assertResponseOk(res, 'Could not load bucket files.');
         const data = (await res.json()) as StorageObject[];
         setObjects(data);
+      } catch (cause) {
+        setObjects([]);
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : 'Could not load bucket files.',
+        );
       } finally {
         setLoadingObjects(false);
       }
@@ -126,6 +159,7 @@ export function StorageClient({
   const createBucket = async () => {
     if (!newBucketName.trim()) return;
     setCreating(true);
+    setError(null);
     try {
       const res = await fetch(`${storageBase}/buckets`, {
         method: 'POST',
@@ -133,58 +167,99 @@ export function StorageClient({
         credentials: 'include',
         body: JSON.stringify({ name: newBucketName, access: newBucketAccess }),
       });
+      await assertResponseOk(res, 'Could not create bucket.');
       const bucket = (await res.json()) as StorageBucket;
       setBuckets((prev) => [...prev, bucket]);
       setCreateOpen(false);
       setNewBucketName('');
-      void loadObjects(bucket);
+      await loadObjects(bucket);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'Could not create bucket.',
+      );
     } finally {
       setCreating(false);
     }
   };
 
   const deleteBucket = async (bucketId: string) => {
-    await fetch(`${storageBase}/buckets/${bucketId}`, {
-      method: 'DELETE',
-      credentials: 'include',
-    });
-    setBuckets((prev) => prev.filter((b) => b.id !== bucketId));
-    if (activeBucket?.id === bucketId) {
-      setActiveBucket(null);
-      setObjects([]);
+    if (!window.confirm('Delete this bucket and all of its files?')) return;
+    setError(null);
+    try {
+      const res = await fetch(`${storageBase}/buckets/${bucketId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      await assertResponseOk(res, 'Could not delete bucket.');
+      const remaining = buckets.filter((bucket) => bucket.id !== bucketId);
+      setBuckets(remaining);
+      if (activeBucket?.id === bucketId) {
+        setActiveBucket(null);
+        setObjects([]);
+        if (remaining[0]) await loadObjects(remaining[0]);
+      }
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'Could not delete bucket.',
+      );
     }
   };
 
   const deleteObject = async (objectId: string) => {
-    await fetch(`${storageBase}/objects/${objectId}`, {
-      method: 'DELETE',
-      credentials: 'include',
-    });
-    setObjects((prev) => prev.filter((o) => o.id !== objectId));
+    setError(null);
+    try {
+      const res = await fetch(`${storageBase}/objects/${objectId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      await assertResponseOk(res, 'Could not delete file.');
+      setObjects((prev) => prev.filter((o) => o.id !== objectId));
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'Could not delete file.',
+      );
+    }
   };
 
   const copyUrl = async (object: StorageObject) => {
-    let url = object.url;
+    setError(null);
+    try {
+      let url = object.url;
 
-    if (!url) {
-      const res = await fetch(
-        `${storageBase}/objects/${object.id}/signed-url`,
-        {
-          credentials: 'include',
-        },
+      if (!url) {
+        const res = await fetch(
+          `${storageBase}/objects/${object.id}/signed-url`,
+          { credentials: 'include' },
+        );
+        await assertResponseOk(res, 'Could not create a file link.');
+        const data = (await res.json()) as { url: string };
+        url = data.url;
+      }
+
+      await navigator.clipboard.writeText(url);
+      setCopiedId(object.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'Could not copy file link.',
       );
-      const data = (await res.json()) as { url: string };
-      url = data.url;
     }
-
-    await navigator.clipboard.writeText(url);
-    setCopiedId(object.id);
-    setTimeout(() => setCopiedId(null), 2000);
   };
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-1 overflow-hidden">
-      <div className="flex h-full min-h-0 w-full">
+    <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
+      {error && (
+        <div
+          role="alert"
+          className="flex shrink-0 items-center justify-between border-b border-destructive/30 bg-destructive/5 px-4 py-2 text-sm text-destructive"
+        >
+          <span>{error}</span>
+          <Button variant="ghost" size="sm" onClick={() => setError(null)}>
+            Dismiss
+          </Button>
+        </div>
+      )}
+      <div className="flex min-h-0 flex-1">
         <ResizablePanelGroup
           orientation="horizontal"
           className="h-full w-full min-h-0"
@@ -374,36 +449,42 @@ export function StorageClient({
                       url={uploadUrl}
                       endpoint="bucketUploader"
                       fetch={uploadFetch}
-                      onUploadError={(error) => {
-                        console.error('Upload failed:', error.message);
-                      }}
                       onClientUploadComplete={async (files) => {
-                        for (const file of files) {
-                          const res = await fetch(
-                            `${storageBase}/buckets/${activeBucket.id}/objects`,
-                            {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              credentials: 'include',
-                              body: JSON.stringify({
-                                name: file.name,
-                                size: file.size,
-                                type: file.type ?? 'application/octet-stream',
-                                utKey: file.key,
-                                url: file.url,
-                              }),
-                            },
-                          );
-                          if (!res.ok) {
-                            console.error(
-                              'Failed to save file:',
-                              await res.text(),
+                        setError(null);
+                        try {
+                          for (const file of files) {
+                            const res = await fetch(
+                              `${storageBase}/buckets/${activeBucket.id}/objects`,
+                              {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                credentials: 'include',
+                                body: JSON.stringify({
+                                  name: file.name,
+                                  size: file.size,
+                                  type: file.type ?? 'application/octet-stream',
+                                  utKey: file.key,
+                                  url: file.url,
+                                }),
+                              },
                             );
-                            continue;
+                            await assertResponseOk(
+                              res,
+                              'Upload completed, but the file could not be added to this bucket.',
+                            );
+                            const object = (await res.json()) as StorageObject;
+                            setObjects((prev) => [object, ...prev]);
                           }
-                          const object = (await res.json()) as StorageObject;
-                          setObjects((prev) => [object, ...prev]);
+                        } catch (cause) {
+                          setError(
+                            cause instanceof Error
+                              ? cause.message
+                              : 'Could not add uploaded file to this bucket.',
+                          );
                         }
+                      }}
+                      onUploadError={(error) => {
+                        setError(`Upload failed: ${error.message}`);
                       }}
                       appearance={{
                         button:
@@ -412,6 +493,18 @@ export function StorageClient({
                       }}
                     />
                   ) : null}
+                </div>
+              )}
+
+              {activeBucket && objects.length > 0 && (
+                <div className="shrink-0 border-b border-border px-4 py-2">
+                  <Input
+                    aria-label="Filter files"
+                    value={objectFilter}
+                    onChange={(event) => setObjectFilter(event.target.value)}
+                    placeholder="Filter files by name..."
+                    className="h-8 max-w-sm"
+                  />
                 </div>
               )}
 
@@ -429,19 +522,23 @@ export function StorageClient({
                 <div className="flex flex-1 items-center justify-center">
                   <p className="text-sm text-muted-foreground">Loading...</p>
                 </div>
-              ) : objects.length === 0 ? (
+              ) : filteredObjects.length === 0 ? (
                 <div className="flex flex-1 flex-col items-center justify-center text-center">
                   <p className="text-sm text-muted-foreground">
-                    This bucket is empty
+                    {objects.length === 0
+                      ? 'This bucket is empty'
+                      : 'No files match your filter'}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Upload files using the button above
-                  </p>
+                  {objects.length === 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Upload files using the button above
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="min-h-0 w-full flex-1 overflow-y-auto">
                   <div className="grid w-full grid-cols-2 gap-3 p-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                    {objects.map((object) => (
+                    {filteredObjects.map((object) => (
                       <div
                         key={object.id}
                         className="group relative rounded-xl border border-border p-3 transition-colors hover:bg-accent"

@@ -1,557 +1,338 @@
-# 🌌 Orion DB — Complete Project Architecture & Documentation
+# Orion DB
 
-> **Orion DB** is a high-performance, open-source **Backend-as-a-Service (BaaS)** and Developer Platform inspired by Supabase and Firebase. It empowers developers to spin up isolated PostgreSQL backends in seconds with instant REST Data APIs, visual Table & SQL Editors, Multi-Tenant Authentication, Realtime WebSocket Channels, Object Storage, and an official JavaScript/TypeScript Client SDK.
+Orion DB is a self-hosted backend platform for applications built on PostgreSQL. It combines a project dashboard, a NestJS API, project-scoped data APIs, authentication, realtime notifications, and object storage in one pnpm monorepo.
 
----
+This document describes the architecture that exists in this repository. The platform is under active development; it does not currently include a global platform administrator console or a separate Supabase Edge Functions deployment.
 
-## 📑 Table of Contents
+## Contents
 
-1. [Executive Summary & What is Orion DB?](#-1-executive-summary--what-is-orion-db)
-2. [High-Level Architecture & How It Works](#-2-high-level-architecture--how-it-works)
-3. [Core Feature Breakdown](#-3-core-feature-breakdown)
-4. [Complete Technology Stack](#-4-complete-technology-stack)
-5. [Monorepo Architecture & Workspace Layout](#-5-monorepo-architecture--workspace-layout)
-6. [Backend Deep Dive (`apps/api` — NestJS)](#-6-backend-deep-dive-appsapi--nestjs)
-   - [Folder Structure](#appsapi-folder-structure)
-   - [Module Responsibilities & Data Flow](#appsapi-modules-and-responsibilities)
-7. [Frontend Deep Dive (`apps/web` — Next.js 16)](#-7-frontend-deep-dive-appsweb--nextjs-16)
-   - [Folder Structure](#appsweb-folder-structure)
-   - [Route Architecture & Features](#appsweb-routes-and-features)
-   - [Proxy & Edge Middleware Security](#proxy--edge-middleware-security)
-8. [Shared Packages Deep Dive (`packages/`)](#-8-shared-packages-deep-dive-packages)
-   - [`@orion/constants`](#packagesconstants)
-   - [`@orion/types`](#packagestypes)
-   - [`orion-js` (Official Client SDK)](#packagesorion-js-official-sdk)
-9. [Database Design & Multi-Tenancy Strategy](#-9-database-design--multi-tenancy-strategy)
-10. [Environment Variables & Configuration Guide](#-10-environment-variables--configuration-guide)
-11. [Local Development & Setup Guide](#-11-local-development--setup-guide)
-12. [Troubleshooting & Pro Tips](#-12-troubleshooting--pro-tips)
+1. [System overview](#system-overview)
+2. [Architecture and request flows](#architecture-and-request-flows)
+3. [Components and responsibilities](#components-and-responsibilities)
+4. [Authentication and authorization](#authentication-and-authorization)
+5. [Data model and tenant isolation](#data-model-and-tenant-isolation)
+6. [Repository layout](#repository-layout)
+7. [Technology stack](#technology-stack)
+8. [Configuration](#configuration)
+9. [Local development](#local-development)
+10. [Using the JavaScript SDK](#using-the-javascript-sdk)
+11. [Operational notes and current limits](#operational-notes-and-current-limits)
 
----
+## System overview
 
-## 🌟 1. Executive Summary & What is Orion DB?
+Orion has two application processes and three shared packages:
 
-Building production-grade applications requires databases, auth systems, real-time messaging, file storage, and APIs. Typically, teams configure PostgreSQL, deploy separate authentication services, manage object storage buckets, and build CRUD APIs from scratch.
+- `apps/web` is the Next.js dashboard used by developers to manage organizations, projects, schemas, SQL, auth settings, storage, and realtime.
+- `apps/api` is the NestJS service. It serves dashboard endpoints, project REST endpoints, project auth, storage routes, and a Socket.IO gateway.
+- `packages/orion-js` is the JavaScript and TypeScript client SDK for project APIs.
+- `packages/types` and `packages/constants` hold shared TypeScript contracts and constants.
 
-**Orion DB solves this by providing a unified, self-hosted BaaS platform:**
+The API and dashboard are normally run locally on ports 3001 and 3000. A PostgreSQL database stores platform metadata and project data. Project data is separated by PostgreSQL schema within the same database; projects do not receive separate database instances.
 
-* **⚡ Postgres Database per Project**: Portable, isolated database instances using dynamic schemas.
-* **🛡️ Two-Tier Authentication**:
-  1. *Platform Authentication*: For developers and team members managing the Orion dashboard (OAuth + JWT cookies).
-  2. *Project Authentication*: Built-in auth for end-users of apps built on Orion (Email/Password, Magic Links, OAuth, and project JWTs).
-* **🚀 Instant REST Data APIs**: Automatic CRUD REST endpoints generated for any table created in the visual schema editor.
-* **⚡ Realtime WebSockets**: Pub/Sub socket infrastructure for building collaborative, multiplayer applications.
-* **📁 Media & File Storage**: Upload, manage, and serve large files powered by UploadThing.
-* **💻 Visual Database Studio**:
-  - *Table Editor*: Visual table creation, column type configuration, and row management.
-  - *SQL Editor*: Embedded Monaco Editor (VS Code engine) with syntax highlighting and query history.
-* **📦 Official Client SDK (`orion-js`)**: Client-side library to query database tables, authenticate end-users, listen to real-time events, and upload files.
+## Architecture and request flows
 
----
+```mermaid
+flowchart LR
+    Browser[Developer browser]
+    External[External application using orion-js]
+    Web[Next.js dashboard<br/>apps/web :3000]
+    Proxy[Next.js proxy<br/>cookie checks and redirects]
+    API[NestJS API<br/>apps/api :3001/api]
+    DB[(PostgreSQL<br/>platform tables and project schemas)]
+    UT[UploadThing]
+    Mail[Resend]
+    OAuth[Google and GitHub OAuth]
 
-## 🏗️ 2. High-Level Architecture & How It Works
-
-Orion DB is built as a **Turborepo/pnpm monorepo** consisting of two primary applications and three shared internal packages:
-
-```
-                                  ┌──────────────────────────────┐
-                                  │      Client Applications     │
-                                  │  (Web Browser / Mobile App)  │
-                                  └──────────────┬───────────────┘
-                                                 │
-                         ┌───────────────────────┴───────────────────────┐
-                         │                                               │
-                         ▼                                               ▼
-              ┌─────────────────────┐                         ┌─────────────────────┐
-              │   Orion Dashboard   │                         │  External Apps with │
-              │   (apps/web: Next)  │                         │  `orion-js` SDK     │
-              └──────────┬──────────┘                         └──────────┬──────────┘
-                         │                                               │
-                         │ HTTP (Cookies / Proxy)                        │ REST / WS (API Keys)
-                         ▼                                               ▼
-              ┌─────────────────────────────────────────────────────────────────────┐
-              │                       Orion API (apps/api: NestJS)                  │
-              │                                                                     │
-              │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────┐ │
-              │  │  Auth/OAuth  │  │ Project Auth │  │ Table Editor │  │ Realtime │ │
-              │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────┘ │
-              │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────┐ │
-              │  │  SQL Editor  │  │ Project REST │  │ File Storage │  │ Members  │ │
-              │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────┘ │
-              └──────────────────────────────────┬──────────────────────────────────┘
-                                                 │
-                                                 │ Drizzle ORM / pg / WebSockets
-                                                 ▼
-              ┌─────────────────────────────────────────────────────────────────────┐
-              │                     PostgreSQL Database (Neon / PG)                 │
-              │                                                                     │
-              │  ┌──────────────────────────────┐ ┌──────────────────────────────┐  │
-              │  │    public (Platform Schema)  │ │   project_{slug} (Tenant)    │  │
-              │  │  Users, Orgs, Projects, Keys │ │   Tables created by users    │  │
-              │  └──────────────────────────────┘ └──────────────────────────────┘  │
-              └─────────────────────────────────────────────────────────────────────┘
+    Browser --> Web
+    Web --> Proxy
+    Web <-->|Dashboard REST and cookies| API
+    Proxy -->|Refresh request when needed| API
+    External -->|REST and project API key| API
+    External <-->|Socket.IO and project API key| API
+    API <-->|Drizzle, PostgreSQL and LISTEN/NOTIFY| DB
+    API <-->|File operations| UT
+    API -->|Transactional email| Mail
+    Browser <-->|OAuth redirects| OAuth
 ```
 
-### Request Flow Explained
+The web proxy is Next.js request interception for dashboard routes. It checks access-token cookies for fast redirects and can ask the API to refresh a session. It is not a separately deployed edge-functions product.
 
-1. **Dashboard Interactions**:
-   - The user opens `apps/web` (Next.js 16).
-   - Next.js edge proxy (`src/proxy.ts`) validates session tokens stored in HttpOnly cookies. If an access token expires, it silently issues a refresh token request to the NestJS API.
-   - The dashboard interacts with `apps/api` via REST for managing organizations, inviting members, executing SQL queries, and creating tables.
+### Dashboard request flow
 
-2. **Project Data & SDK Flow**:
-   - Third-party apps install `orion-js`.
-   - The developer initializes the client with `projectUrl` and `anonKey`.
-   - Requests are routed to `apps/api/src/project-api`, guarded by `ProjectKeyGuard`.
-   - Dynamic SQL queries are generated, validated, and executed against the project's isolated PostgreSQL schema (`project_{slug}`).
+1. The browser loads the Next.js dashboard.
+2. `apps/web/src/proxy.ts` checks the platform access-token cookie on matched routes. Protected pages redirect to login when the token is missing or invalid. If a refresh cookie exists, the proxy asks the API to refresh it.
+3. Dashboard server and client components call NestJS endpoints. Platform requests use the session cookies and organization membership checks.
+4. NestJS reads or changes platform metadata and project schemas in PostgreSQL.
 
-3. **Realtime Updates Flow**:
-   - Clients connect via Socket.IO/WebSockets to `apps/api/src/realtime`.
-   - Clients subscribe to channel rooms (e.g. table changes).
-   - Database mutation events trigger notifications that are broadcast to subscribed socket clients.
+### Project data request flow
 
----
+1. An external application initializes `orion-js` with a project URL and an API key.
+2. The SDK sends requests to `/api/projects/:projectSlug/rest/:table` with a bearer project key.
+3. `ProjectKeyGuard` verifies the signed key and identifies its project and role.
+4. The project API validates the project slug, parses supported query filters, and runs parameterized database operations against that project's schema.
 
-## 🎯 3. Core Feature Breakdown
+### Realtime request flow
 
-| Feature | Description | Implementation Details |
-| :--- | :--- | :--- |
-| **Organizations & Teams** | Multi-tenant organization workspace hierarchy. | Role-Based Access Control (`admin`, `developer`), email invites with expiration. |
-| **Project Management** | Dynamic project creation with dedicated schemas and keys. | Automatic generation of `anonKey` and `serviceRoleKey`, slug generation via `slugify`. |
-| **Visual Table Editor** | View, create, and modify database tables without writing SQL. | Supports `text`, `integer`, `bigint`, `boolean`, `timestamp`, `uuid`, `jsonb`, and `numeric`. |
-| **Interactive SQL Editor** | Execute raw PostgreSQL queries directly from the dashboard. | Embedded Monaco Editor, schema autocompletion, execution history logging. |
-| **Auto-generated REST APIs** | Immediate REST APIs for every table created. | Query parser supporting `select`, `order`, `limit`, `offset`, and operators (`eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `like`, `ilike`, `is`). |
-| **Platform Authentication** | Secure developer login for Orion dashboard. | Email/Password with `bcrypt`, Google OAuth, GitHub OAuth, JWT access/refresh tokens in HttpOnly cookies. |
-| **Project Authentication** | Auth system for applications built *on top* of Orion. | End-user signups, logins, magic link passwordless login via Resend, and session tokens. |
-| **Realtime WebSockets** | Live event streaming and reactive updates. | Socket.IO gateway with channel subscription/unsubscription protocols. |
-| **Object Storage** | Upload and serve files, images, and documents. | UploadThing backend endpoints with bucket and object tracking tables. |
-| **Client SDK (`orion-js`)** | Official JavaScript/TypeScript SDK for web, Node, and mobile apps. | Modular interface providing `.from(table)`, `.auth`, `.realtime`, and `.storage`. |
+1. The SDK opens a Socket.IO connection to the API's `/realtime` namespace and provides its project key during the handshake.
+2. The gateway verifies the key and joins the socket to project-scoped rooms.
+3. When realtime is enabled for a table, PostgreSQL triggers publish row events with `NOTIFY`.
+4. The API listens on the corresponding channel and sends events to subscribed sockets.
 
----
+### Storage request flow
 
-## 🛠️ 4. Complete Technology Stack
+1. A bucket and its access setting are stored in platform metadata tables.
+2. The API validates the project and bucket, then exposes the UploadThing route for file transfer.
+3. UploadThing stores file contents; Orion stores object metadata and the UploadThing key in PostgreSQL.
+4. Public object URLs are stored for public buckets. Private objects use API-generated signed URLs.
 
-### Backend Stack (`apps/api`)
-- **Framework**: [NestJS 11](https://nestjs.com/) (Modular, enterprise TypeScript architecture)
-- **Runtime**: Node.js 20.9+
-- **Database & ORM**:
-  - [PostgreSQL](https://www.postgresql.org/) / [Neon Serverless Postgres](https://neon.tech/)
-  - [Drizzle ORM](https://orm.drizzle.team/) & `drizzle-kit` for type-safe schema definitions and migrations
-  - Native `pg` driver for connection pooling and dynamic schema queries
-- **Realtime**: `@nestjs/websockets`, `@nestjs/platform-socket.io`, `socket.io`, `ws`
-- **Security & Auth**:
-  - `@nestjs/jwt`, `bcrypt` for password hashing
-  - `cookie-parser` for HttpOnly session management
-  - `class-validator` & `class-transformer` for DTO validation
-- **External Integrations**:
-  - [Resend](https://resend.com/) for transactional email (member invites and magic links)
-  - [UploadThing](https://uploadthing.com/) for file storage pipelines
-- **Utilities**: `slugify`, `rxjs`, `dotenv`
+## Components and responsibilities
 
-### Frontend Stack (`apps/web`)
-- **Framework**: [Next.js 16](https://nextjs.org/) (App Router, Turbopack, React Server Components)
-- **Core Library**: [React 19](https://react.dev/)
-- **Styling**:
-  - [Tailwind CSS v4](https://tailwindcss.com/)
-  - Custom glassmorphic tokens, CSS variables, and OKLCH color palettes
-  - `tw-animate-css` for micro-interactions
-- **UI Components & Icons**:
-  - [Radix UI](https://www.radix-ui.com/) primitives (dialogs, dropdowns, scroll areas, tooltips)
-  - [Lucide React](https://lucide.dev/) for iconography
-  - `react-resizable-panels` for IDE/Studio split panes
-- **Forms & Data Tables**:
-  - `react-hook-form` with `@hookform/resolvers` & [Zod](https://zod.dev/)
-  - [TanStack Table v8](https://tanstack.com/table) for tabular data grids
-- **Code & Query Editing**:
-  - `@monaco-editor/react` (Visual Studio Code editor in browser)
-- **Networking & Auth**:
-  - `axios` & native `fetch`
-  - `jose` for edge JWT verification in middleware
-  - `socket.io-client` for live WebSocket connectivity
+### Web dashboard: `apps/web`
 
-### Monorepo & Development Tooling
-- **Package Manager**: [pnpm](https://pnpm.io/) (Fast, disk-efficient workspace management)
-- **Task Runner**: `concurrently` (Run frontend & backend simultaneously)
-- **SDK Bundler**: `tsdown` (Fast TypeScript library bundler for `packages/orion-js`)
-- **Quality & Formatting**: TypeScript 5, ESLint 9, Prettier
+The Next.js App Router provides public landing, login, and registration routes, plus a protected dashboard route group. The dashboard includes organization and member management, project settings, a database table editor, SQL editor, project authentication settings and users, storage buckets and files, realtime controls, and generated API documentation.
 
----
+Feature code is organized under `apps/web/src/features`; reusable UI components live under `apps/web/src/components`.
 
-## 📁 5. Monorepo Architecture & Workspace Layout
+### API: `apps/api`
 
-```
+NestJS modules are registered in `apps/api/src/app.module.ts`. The global API prefix is `/api`.
+
+| Module | Responsibility |
+| --- | --- |
+| `auth` | Developer registration and login, session tokens, OAuth callbacks, cookie handling, and refresh endpoints |
+| `orgs` | Organization creation and lookup |
+| `members` | Organization membership, roles, and invitations |
+| `projects` | Project provisioning, schema creation, and project API key generation |
+| `project-api` | Project REST reads and writes against user-created tables |
+| `table-editor` | Project table and column inspection and schema changes |
+| `sql-editor` | Dashboard SQL execution and query history |
+| `project-auth` | End-user signup, sign-in, magic links, OAuth, and project auth settings |
+| `realtime` | Socket.IO gateway and PostgreSQL notification subscriptions |
+| `storage` | Bucket and object metadata, UploadThing handlers, and signed URLs |
+| `db` | PostgreSQL connection, Drizzle client, and platform schema definitions |
+
+The API bootstrap in `main.ts` configures cookies, CORS, WebSocket support, DTO validation, and the `/api` prefix.
+
+### API surface
+
+All HTTP routes are under `/api`. The main route groups are:
+
+| Route group | Used by | Credential model |
+| --- | --- | --- |
+| `/auth/*` | Dashboard login, registration, OAuth, session refresh | Platform session cookies or refresh token |
+| `/orgs/*` | Dashboard organizations, members, projects, table editor, SQL editor, storage management | Platform access-token cookie and organization membership |
+| `/projects/:projectSlug/rest/:table` | External project data clients | Bearer project API key |
+| `/projects/:projectSlug/auth/*` | End-user auth in applications built on Orion | Project auth endpoints and project-specific settings |
+| `/projects/:projectSlug/storage/*` | External project storage clients | Bearer project API key; writes require service role |
+| `/realtime` | Dashboard and external realtime clients | Socket.IO connection with project API key in handshake auth |
+
+Project route prefixes and endpoint details can be confirmed in the controllers under `apps/api/src`.
+
+### Shared packages
+
+- `packages/constants` defines shared cookie names, role names, column types, filter operators, and realtime event names.
+- `packages/types` defines shared API and domain TypeScript types.
+- `packages/orion-js` exports `createClient`, `OrionClient`, the database query builder, auth helpers, realtime client, and storage client.
+
+## Authentication and authorization
+
+Orion has separate platform and project credentials.
+
+### Platform sessions
+
+Developers authenticate to the dashboard with email and password or configured Google/GitHub OAuth. The API issues access and refresh tokens in cookies. The web proxy performs an optimistic access-token check; API guards and membership checks enforce authorization on backend routes.
+
+Organization roles are `admin` and `developer`. They apply within an organization. The current application has no global admin role or platform-wide admin panel.
+
+### Project API keys
+
+Each project has an `anon` key and a `service_role` key. Both are signed project tokens verified by `ProjectKeyGuard`.
+
+- Use the anon key in client applications for the project operations allowed to that role.
+- Use the service-role key only in trusted server code. Project data writes, uploads, and deletes require this role in the current API.
+- Never expose the service-role key in a browser bundle, public repository, or client-side environment variable.
+
+Project end-user authentication is implemented separately from dashboard sessions. It issues project auth tokens and manages users in the project's schema; it does not replace project API key authorization on the REST and storage routes.
+
+## Data model and tenant isolation
+
+Orion uses one PostgreSQL database connection for platform metadata and project data. Platform tables are in the `public` schema. When a project is created, the API provisions a schema with a generated name such as `proj_a1b2c3d4` and records that schema against the project.
+
+Platform metadata includes users, organizations, organization memberships, projects and their keys, SQL query history, storage buckets, and storage objects. User-created tables and project-auth user data live in the project's schema.
+
+Project API services resolve the schema from the verified project ID. Project identifiers and table names are validated before query execution; values are parameterized. This schema separation is logical isolation inside one database, not a separate PostgreSQL server or database per project.
+
+## Repository layout
+
+```text
 orion-db/
 ├── apps/
-│   ├── api/                     # NestJS Backend API (port 3001)
-│   └── web/                     # Next.js 16 Web Dashboard (port 3000)
+│   ├── api/                    # NestJS API and database access
+│   └── web/                    # Next.js dashboard
 ├── packages/
-│   ├── constants/               # Shared constants (roles, cookies, types)
-│   ├── types/                   # Shared TypeScript interfaces & DTOs
-│   └── orion-js/                # Official JavaScript/TypeScript SDK
-├── dependencies.md              # Dependency reference & versions
-├── README.md                    # Main Project Documentation
-├── package.json                 # Monorepo root scripts (`dev`, `dev:api`, `dev:web`)
-├── pnpm-workspace.yaml          # pnpm workspace configuration
-└── pnpm-lock.yaml               # Resolved lockfile
+│   ├── constants/              # Shared enums and constants
+│   ├── types/                  # Shared TypeScript types
+│   └── orion-js/               # Client SDK
+├── practical-9-evidence/       # Project evidence and test documentation
+├── package.json                # Root development scripts
+├── pnpm-workspace.yaml         # Workspace package discovery
+└── pnpm-lock.yaml              # Locked dependency graph
 ```
 
----
+Key source areas:
 
-## ⚙️ 6. Backend Deep Dive (`apps/api` — NestJS)
-
-### `apps/api` Folder Structure
-
-```
+```text
 apps/api/src/
-├── app.controller.ts            # Root health check endpoint
-├── app.module.ts                # Main application module registering all submodules
-├── app.service.ts               # Root service
-├── main.ts                      # NestJS bootstrap, CORS, cookie parser, validation pipe
-├── auth/                        # Platform authentication (JWT, Login, Register, OAuth)
-│   ├── auth.controller.ts
-│   ├── auth.module.ts
-│   ├── auth.service.ts
-│   ├── dto/                     # Auth DTOs
-│   ├── guards/                  # JwtAuthGuard, RefreshTokenGuard
-│   └── strategies/              # Passport/JWT strategies, OAuth callbacks
-├── db/                          # Database connection and Drizzle schema
-│   ├── db.module.ts
-│   ├── drizzle.service.ts       # Drizzle client instantiation
-│   └── schema/                  # PostgreSQL table definitions
-│       ├── index.ts
-│       ├── organizations.ts     # Organizations & Members tables
-│       ├── projects.ts          # Projects table (schemas, API keys)
-│       ├── users.ts             # Platform Users table
-│       ├── query-history.ts     # SQL editor query logs
-│       ├── storage-buckets.ts   # File storage buckets
-│       └── storage-objects.ts   # File storage object records
-├── members/                     # Organization team members & invite system
-├── orgs/                        # Organization CRUD & slug generation
-├── projects/                    # Project provisioning, keys generation, schema setup
-├── project-api/                 # Dynamic REST API for project tables
-│   ├── project-api.controller.ts# Endpoints: GET/POST/PATCH/DELETE /:projectSlug/:table
-│   ├── project-api.service.ts   # Dynamic SQL builder & executor
-│   ├── project-key.guard.ts     # Validates `anonKey` / `serviceRoleKey`
-│   └── query-parser.ts          # Parses SQL filter params from URL
-├── project-auth/                # End-user authentication for user projects
-│   ├── project-auth.controller.ts
-│   ├── project-auth.service.ts
-│   └── dto/
-├── realtime/                    # WebSocket Gateway for realtime events
-│   ├── realtime.gateway.ts      # Socket.IO connection & event handlers
-│   └── realtime.module.ts
-├── sql-editor/                  # Arbitrary SQL query execution engine
-│   ├── sql-editor.controller.ts
-│   ├── sql-editor.service.ts
-│   └── dto/
-├── storage/                     # File upload & UploadThing integration
-│   ├── storage.controller.ts
-│   └── storage.service.ts
-└── table-editor/                # Visual Table Schema management
-    ├── table-editor.controller.ts
-    ├── table-editor.service.ts
-    └── dto/
-```
+├── auth/                       # Platform identity and sessions
+├── db/schema/                  # Drizzle platform tables
+├── members/                    # Organization membership
+├── orgs/                       # Organization APIs
+├── project-api/                # Project REST and key validation
+├── project-auth/               # End-user project authentication
+├── projects/                   # Project and schema provisioning
+├── realtime/                   # Socket.IO and PostgreSQL notifications
+├── sql-editor/                 # Dashboard SQL execution
+├── storage/                    # Buckets, objects, UploadThing
+└── table-editor/               # Table and column management
 
-### `apps/api` Modules and Responsibilities
-
-1. **`AuthModule`**:
-   - Manages developer authentication for Orion.
-   - Signs and verifies short-lived JWT access tokens (15m) and long-lived refresh tokens (7d).
-   - Sets secure `HttpOnly`, `SameSite` cookies to prevent XSS credential theft.
-   - Handles Google and GitHub OAuth callback handshakes.
-
-2. **`ProjectsModule`**:
-   - Generates unique project slugs and cryptographic API keys (`anon` key and `service_role` key).
-   - Initializes a dedicated PostgreSQL schema (`CREATE SCHEMA project_{slug}`) when a project is created, ensuring complete multi-tenant database isolation.
-
-3. **`TableEditorModule`**:
-   - Runs DDL statements (`CREATE TABLE`, `ALTER TABLE`, `DROP TABLE`).
-   - Inspects `information_schema.columns` and `information_schema.tables` to return table schemas and column types to the UI.
-
-4. **`ProjectApiModule`**:
-   - Accepts requests from developers and apps using `orion-js`.
-   - Validates `apikey` headers using `ProjectKeyGuard`.
-   - Uses `QueryParser` to safely convert query strings like `?age=gte.18&status=eq.active&select=id,name` into parameterized SQL queries preventing SQL injection.
-
-5. **`SqlEditorModule`**:
-   - Executes arbitrary SQL for the web dashboard's Monaco Editor.
-   - Logs query history in `query_history` with execution durations and timestamps.
-
-6. **`RealtimeModule`**:
-   - Provides a WebSocket gateway using `@nestjs/platform-socket.io`.
-   - Handles room subscription (`subscribe`) and broadcasts mutation payloads to clients listening on specific channels.
-
-7. **`StorageModule`**:
-   - Handles storage bucket creation, access policies, and object tracking.
-   - Communicates with UploadThing for direct client-to-cloud file uploads.
-
----
-
-## 💻 7. Frontend Deep Dive (`apps/web` — Next.js 16)
-
-### `apps/web` Folder Structure
-
-```
 apps/web/src/
-├── app/                         # Next.js App Router
-│   ├── layout.tsx               # Root HTML layout with Geist font
-│   ├── globals.css              # Tailwind v4 theme, OKLCH color tokens, animations
-│   ├── page.tsx                 # High-converting Landing Page (Hero, Features, CTAs)
-│   ├── login/                   # Developer Login Page
-│   ├── register/                # Developer Registration Page
-│   └── (dashboard)/             # Protected Route Group
-│       ├── layout.tsx           # Dashboard shell with AppSidebar & TopNav
-│       ├── organizations/       # Organization & Project management
-│       │   ├── new/             # Create organization
-│       │   └── [slug]/          # Organization detail
-│       │       ├── projects/    # Project list
-│       │       ├── settings/    # Organization settings & member management
-│       │       └── [projectSlug]/ # Specific Project Studio
-│       │           ├── database/# Visual Table Editor & schema inspector
-│       │           ├── sql/     # Monaco SQL Editor & query runner
-│       │           ├── auth/    # End-user project auth management & users
-│       │           ├── storage/ # Storage buckets & file manager
-│       │           ├── realtime/# WebSocket subscription tester
-│       │           └── api/     # Auto-generated API documentation
-│       └── settings/            # Personal user account settings
-├── components/                  # Shared UI components
-│   ├── app-sidebar.tsx          # Multi-level collateral navigation bar
-│   ├── top-nav.tsx              # Breadcrumbs, project switcher, user avatar menu
-│   └── ui/                      # Radix UI wrappers (Button, Dialog, Dropdown, Table, Input)
-├── features/                    # Domain-driven feature modules
-│   ├── api-docs/                # Interactive API documentation generator
-│   ├── auth/                    # Client auth forms, cookie utilities, OAuth buttons
-│   ├── members/                 # Member invitation dialogs & role switches
-│   ├── organization/            # Org creation modals & cards
-│   ├── project-auth/            # User auth provider configuration
-│   ├── projects/                # Project cards, creation flow, credentials display
-│   ├── realtime/                # Realtime inspector UI
-│   ├── sql-editor/              # Monaco editor component & execution logs
-│   ├── storage/                 # Upload dropzone, file list, bucket viewer
-│   └── table-editor/            # Data table grid, column modifier, row editor
-├── hooks/                       # Custom React hooks (useAuth, useProject, useRealtime)
-├── lib/                         # Axios client, utilities (`cn`), formatters
-├── proxy.ts                     # Next.js Edge Auth Middleware (Token verification & refresh)
-└── server-utils/                # Server-side data fetching helpers
+├── app/                        # App Router pages and layouts
+├── components/                 # Shared UI
+├── features/                   # Feature-specific UI and helpers
+├── lib/                        # API clients and utilities
+└── proxy.ts                    # Dashboard session redirects and refresh
 ```
 
-### `apps/web` Routes and Features
+## Technology stack
 
-* **Landing Page (`src/app/page.tsx`)**:
-  - Features modern micro-animations, glowing hover effects, SVG logo rotation, and interactive feature cards.
-  - Links to authentication and documentation.
-* **Database Studio (`/organizations/[slug]/[projectSlug]/database`)**:
-  - Full spreadsheet-like table interface using `@tanstack/react-table`.
-  - Add columns, filter rows, paginate, and edit data in place.
-* **SQL Studio (`/organizations/[slug]/[projectSlug]/sql`)**:
-  - Monaco Editor supporting SQL auto-completion, line numbers, and dark mode.
-  - Query execution statistics (run time, row count) and execution history drawer.
-* **API Documentation (`/organizations/[slug]/[projectSlug]/api`)**:
-  - Automatically reads the project's schema and displays copy-pasteable JavaScript (`orion-js`), cURL, and REST snippets for each table.
+| Area | Technologies |
+| --- | --- |
+| Monorepo | pnpm workspaces |
+| Dashboard | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
+| API | NestJS 11, Node.js, TypeScript |
+| Database | PostgreSQL, Neon-compatible connections, Drizzle ORM |
+| Realtime | Socket.IO, PostgreSQL `LISTEN`/`NOTIFY` |
+| Project SDK | TypeScript, `tsdown`, Socket.IO client, UploadThing client |
+| Storage | UploadThing for file contents; PostgreSQL for bucket/object metadata |
+| Email | Resend |
+| OAuth | Google and GitHub providers |
 
-### Proxy & Edge Middleware Security
+## Configuration
 
-The Next.js proxy in [proxy.ts](file:///c:/Users/ASUS/Desktop/awt_proj/orion-db/apps/web/src/proxy.ts) guards all application routes:
-- **Token Verification**: Uses `jose` to verify JWT access tokens locally at the edge without querying the database.
-- **Silent Refresh**: If an access token expires but a refresh token exists, it calls the backend `/auth/refresh` endpoint seamlessly, updating cookies without interrupting the user.
-- **Route Redirection**: Prevents unauthenticated access to `/dashboard` or `/organizations`, and redirects logged-in users away from `/login` and `/register`.
+Copy the example files before starting the applications. Use real secrets only in ignored local `.env` files or a deployment secret manager. Do not commit credentials.
 
----
+### API environment: `apps/api/.env`
 
-## 📦 8. Shared Packages Deep Dive (`packages/`)
+| Variable | Purpose |
+| --- | --- |
+| `PORT` | API listener port; local default is `3001` |
+| `API_URL` | Public API base URL, including `/api`; local default is `http://localhost:3001/api` |
+| `WEB_URL` | Allowed dashboard origin for CORS; local default is `http://localhost:3000` |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `REALTIME_DATABASE_URL` | Optional direct, non-pooler PostgreSQL connection for realtime `LISTEN`/`NOTIFY` |
+| `JWT_ACCESS_SECRET` | Signing secret for platform access tokens |
+| `JWT_REFRESH_SECRET` | Signing secret for platform refresh tokens |
+| `JWT_ACCESS_EXPIRES_IN` | Platform access-token lifetime |
+| `JWT_REFRESH_EXPIRES_IN` | Platform refresh-token lifetime |
+| `INVITE_SECRET` | Signing secret for organization invitations |
+| `PROJECT_JWT_SECRET` | Signing and verification secret for project API keys and project auth tokens |
+| `RESEND_API_KEY` | Resend credential for transactional email |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google OAuth application credentials |
+| `GOOGLE_CALLBACK_URL` | Google OAuth callback URL |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | GitHub OAuth application credentials |
+| `GITHUB_CALLBACK_URL` | GitHub OAuth callback URL |
+| `UPLOADTHING_TOKEN` | UploadThing server credential |
 
-### `packages/constants`
-Contains global constants shared across backend, frontend, and SDK:
-- `COOKIE_KEYS`: `access_token`, `refresh_token`
-- `ORG_ROLES`: `admin`, `developer`
-- `PROJECT_KEY_ROLES`: `anon`, `service_role`
-- `COLUMN_TYPES`: `text`, `integer`, `bigint`, `boolean`, `timestamp`, `uuid`, `jsonb`, `numeric`
-- `FILTER_OPERATORS`: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `like`, `ilike`, `is`
-- `REALTIME_EVENTS`: `subscribe`, `unsubscribe`, `event`, `error`
+### Web environment: `apps/web/.env.local`
 
-### `packages/types`
-Type definitions providing end-to-end type safety:
-- `User`, `Organization`, `Project`, `OrgMember`
-- `TableDefinition`, `ColumnDefinition`, `QueryResult`
-- Auth DTOs: `RegisterInput`, `LoginInput`, `AuthTokens`, `JwtPayload`
+| Variable | Purpose |
+| --- | --- |
+| `PORT` | Dashboard port; local default is `3000` |
+| `API_URL` | Server-side API URL used by server rendering and proxy refresh |
+| `NEXT_PUBLIC_API_URL` | API URL used by browser-side dashboard code |
+| `NEXT_PUBLIC_WEB_URL` | Dashboard's public base URL |
+| `JWT_ACCESS_SECRET` | Must match the API access-token secret for proxy verification |
 
-### `packages/orion-js` (Official SDK)
-The client library developers install to use Orion in their own frontend/backend applications:
+The API CORS configuration currently allows the configured `WEB_URL` origin. Browser-based integrations hosted on a different origin need an explicit CORS configuration that allows that origin.
 
-```typescript
-import { OrionClient } from 'orion-js';
+## Local development
 
-// Initialize client
-const orion = new OrionClient('http://localhost:3000/api', 'YOUR_ANON_KEY');
+### Requirements
 
-// 1. Query Database Table
-const { data, error } = await orion
-  .from('posts')
-  .select('id, title, author')
-  .eq('published', true)
-  .order('created_at', { ascending: false })
-  .limit(10);
+- Node.js 20.9 or newer
+- pnpm 10.9 or newer
+- PostgreSQL, either local or hosted
 
-// 2. Realtime WebSocket Subscription
-const channel = orion.realtime.channel('posts-room');
-channel.on('INSERT', (newPost) => {
-  console.log('New post received:', newPost);
-});
-channel.subscribe();
+### Install and configure
 
-// 3. User Authentication
-const { user, token } = await orion.auth.signUp({
-  email: 'user@example.com',
-  password: 'SecurePassword123!',
-});
-
-// 4. File Storage Upload
-const uploadResult = await orion.storage.from('avatars').upload(file);
-```
-
----
-
-## 🗄️ 9. Database Design & Multi-Tenancy Strategy
-
-Orion DB employs a **Schema-based Multi-Tenancy Architecture** on PostgreSQL.
-
-### 1. Platform Schema (`public`)
-Stores metadata about the Orion platform itself:
-- `users`: Developer accounts, password hashes, avatars.
-- `organizations`: Teams and workspaces.
-- `organization_members`: Users linked to organizations with roles (`admin` or `developer`).
-- `projects`: Projects created under organizations. Stores the project's generated API keys (`anonKey`, `serviceRoleKey`) and assigned `dbSchema`.
-- `query_history`: User SQL query logs for the Monaco Editor.
-- `storage_buckets` & `storage_objects`: Bucket metadata and uploaded file references.
-
-### 2. Tenant Schemas (`project_{slug}`)
-When a project is created, Orion executes:
-```sql
-CREATE SCHEMA IF NOT EXISTS "project_my_app";
-```
-Every table created by the user in the Table Editor or SQL Editor lives inside their schema:
-- `project_my_app.users`
-- `project_my_app.posts`
-- `project_my_app.orders`
-
-**Why this design?**
-1. **Security**: Data from different projects is physically isolated in separate PostgreSQL namespaces.
-2. **Performance**: Table names don't conflict; queries execute directly against clean schema paths.
-3. **Portability**: A project's schema can easily be dumped (`pg_dump -n project_my_app`) and migrated to an external database at any time.
-
----
-
-## ⚙️ 10. Environment Variables & Configuration Guide
-
-### API Environment (`apps/api/.env`)
-
-| Variable | Description | Example / Default |
-| :--- | :--- | :--- |
-| `PORT` | Port for the NestJS API server | `3001` |
-| `API_URL` | Base public URL of the API | `http://localhost:3001/api` |
-| `WEB_URL` | Frontend URL allowed by CORS | `http://localhost:3000` |
-| `DATABASE_URL` | Primary PostgreSQL connection string | `postgresql://user:pass@host/db?sslmode=require` |
-| `REALTIME_DATABASE_URL` | Database connection for realtime listener (optional) | Same as `DATABASE_URL` |
-| `JWT_ACCESS_SECRET` | Secret key for signing access JWTs | Random 32+ character string |
-| `JWT_REFRESH_SECRET` | Secret key for signing refresh JWTs | Random 32+ character string |
-| `JWT_ACCESS_EXPIRES_IN` | Access token lifespan | `15m` |
-| `JWT_REFRESH_EXPIRES_IN`| Refresh token lifespan | `7d` |
-| `INVITE_SECRET` | Secret for organization invitation tokens | Random 32+ character string |
-| `PROJECT_JWT_SECRET` | Secret for signing end-user project JWTs | Random 32+ character string |
-| `RESEND_API_KEY` | Resend API key for transactional emails | `re_123456...` |
-| `GOOGLE_CLIENT_ID` | Google OAuth Client ID | `*.apps.googleusercontent.com` |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret | Secret from Google Cloud Console |
-| `GOOGLE_CALLBACK_URL` | Google OAuth callback URL | `http://localhost:3001/api/auth/google/callback` |
-| `GITHUB_CLIENT_ID` | GitHub OAuth App Client ID | Client ID from GitHub Developer Settings |
-| `GITHUB_CLIENT_SECRET` | GitHub OAuth App Client Secret | Secret from GitHub Developer Settings |
-| `GITHUB_CALLBACK_URL` | GitHub OAuth callback URL | `http://localhost:3001/api/auth/github/callback` |
-| `UPLOADTHING_TOKEN` | UploadThing API token for storage | `ut_token_...` |
-
-### Web Environment (`apps/web/.env.local`)
-
-| Variable | Description | Example / Default |
-| :--- | :--- | :--- |
-| `PORT` | Next.js port | `3000` |
-| `API_URL` | Server-to-server API URL for middleware & SSR | `http://localhost:3001/api` |
-| `NEXT_PUBLIC_API_URL` | Client-accessible API URL | `http://localhost:3001/api` |
-| `NEXT_PUBLIC_WEB_URL` | Public frontend URL | `http://localhost:3000` |
-| `JWT_ACCESS_SECRET` | Must match API secret for edge token verification | Same as API `JWT_ACCESS_SECRET` |
-
----
-
-## 🚀 11. Local Development & Setup Guide
-
-### Prerequisites
-- **Node.js**: v20.9.0 or higher
-- **pnpm**: v10.9.0 or higher (`npm install -g pnpm`)
-- **PostgreSQL Database**: Local PostgreSQL instance or a free [Neon](https://neon.tech) cloud database
-
-### Step 1: Clone and Install Dependencies
 ```bash
 git clone https://github.com/Tirth678/orion-db.git
 cd orion-db
 pnpm install
+cp apps/api/.env.example apps/api/.env
+cp apps/web/.env.example apps/web/.env.local
 ```
 
-### Step 2: Configure Environment Variables
-1. Copy `.env.example` in `apps/api`:
-   ```bash
-   cp apps/api/.env.example apps/api/.env
-   ```
-   Fill in your `DATABASE_URL` and secrets.
+Fill in the database URL and required secrets in `apps/api/.env`. Set the same `JWT_ACCESS_SECRET` in both API and web environment files. Configure OAuth and UploadThing credentials only when using those integrations.
 
-2. Copy `.env.example` in `apps/web`:
-   ```bash
-   cp apps/web/.env.example apps/web/.env.local
-   ```
-   Ensure `JWT_ACCESS_SECRET` matches the one in `apps/api/.env`.
+### Start the applications
 
-### Step 3: Run Database Migrations
-```bash
-pnpm --filter api db:push
-```
-
-### Step 4: Start Development Servers
-You can start both frontend and backend concurrently from the root:
 ```bash
 pnpm dev
 ```
-Or start them individually in separate terminals:
-```bash
-# Terminal 1: NestJS API (runs on http://localhost:3001)
-pnpm run dev:api
 
-# Terminal 2: Next.js Frontend (runs on http://localhost:3000)
+Or run each process separately:
+
+```bash
+pnpm run dev:api
 pnpm run dev:web
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+The dashboard is at `http://localhost:3000`; the API base is `http://localhost:3001/api`.
 
----
+### Database schema
 
-## 💡 12. Troubleshooting & Pro Tips
+Drizzle schema definitions are in `apps/api/src/db/schema`. The repository provides `db:push`, `db:generate`, and `db:migrate` scripts in the API package. Review schema changes before applying them to a shared or production database.
 
-### 1. `pnpm run start` vs `pnpm run dev`
-* **Development (`pnpm run dev`)**: Next.js runs in development mode with Turbopack and **Hot Module Replacement (HMR)**. Any CSS changes, animations, or component edits in `src/app` appear immediately in the browser.
-* **Production (`pnpm run start`)**: Serves an **already compiled static build** from `.next`. If you edit code and run `start` without running `pnpm run build` first, your changes will **not** appear!
-
-### 2. Port Alignment
-* The standard configuration places the **Web dashboard on port 3000** and the **NestJS API on port 3001**.
-* If Google/GitHub OAuth redirects fail, verify that the Authorized Redirect URIs in your Google Cloud or GitHub OAuth app settings match `http://localhost:3001/api/auth/google/callback` and `http://localhost:3001/api/auth/github/callback`.
-
-### 3. Database Schema Push
-If you modify Drizzle schema files in `apps/api/src/db/schema/`:
 ```bash
-# Push schema changes directly to PostgreSQL
 pnpm --filter api db:push
-
-# Launch Drizzle Studio GUI to inspect tables
-pnpm --filter api db:studio
+pnpm --filter api db:generate
+pnpm --filter api db:migrate
 ```
 
----
+## Using the JavaScript SDK
 
-<div align="center">
-  <sub>Built with ❤️ for developers who love PostgreSQL, Next.js, and NestJS.</sub>
-</div>
+The SDK expects the project's API URL, which has the form `/api/projects/:projectSlug`, and a project API key. In a client application, use the anon key:
+
+```ts
+import { createClient } from 'orion-js';
+
+const orion = createClient(
+  'http://localhost:3001/api/projects/<project-slug>',
+  '<anon-key>',
+);
+
+const { data, error } = await orion
+  .from('posts')
+  .select('id, title')
+  .eq('published', true)
+  .limit(10);
+
+const { data: files, error: storageError } = await orion.storage
+  .from('avatars')
+  .list();
+```
+
+Realtime subscriptions use `orion.realtime`; project end-user auth helpers are available under `orion.auth`. Storage uploads and deletes currently require the service-role key, so call them from trusted server code only. Do not put that key in browser code.
+
+For a hosted external application, the API must be deployed or otherwise reachable from that application. `localhost` refers to the machine running the client and cannot reach a developer's separate machine over the public internet.
+
+## Operational notes and current limits
+
+- The dashboard is an organization/project management console. There is no platform-wide admin panel in the current implementation.
+- The repository's edge-related code is the Next.js proxy for dashboard sessions. There is no `supabase/functions` directory or Supabase Edge Functions implementation in this codebase.
+- Realtime notifications require PostgreSQL `LISTEN`/`NOTIFY`. Neon deployments should use a direct connection for the listener when the provider's pooled connection does not support it; set `REALTIME_DATABASE_URL` accordingly.
+- Project anon and service-role keys are long-lived signed credentials. Protect the service-role key and rotate project keys if exposed.
+- The storage access setting controls whether Orion stores a direct public URL or requires a signed URL. Currently, any valid project key can list bucket objects and request signed URLs, while uploads and deletes require the service-role key. Treat `private` as URL handling rather than a complete end-user authorization boundary until per-user bucket policies are implemented.
+- The API CORS setting defaults to the dashboard origin. Update it deliberately when allowing additional browser origins.
+- `pnpm run start` for the web app serves a production build. Run the build command before using it after source changes.
