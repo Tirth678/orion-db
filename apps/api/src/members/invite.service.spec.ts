@@ -1,8 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { InviteService } from './invite.service';
-import { DrizzleService } from '../db/drizzle.service';
-import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
 
 describe('InviteService', () => {
   let service: InviteService;
@@ -31,11 +28,7 @@ describe('InviteService', () => {
       }),
     };
 
-    service = new InviteService(
-      drizzle as unknown as DrizzleService,
-      jwtService as unknown as JwtService,
-      configService as unknown as ConfigService,
-    );
+    service = new InviteService(drizzle, jwtService, configService);
   });
 
   describe('sendInvite', () => {
@@ -127,13 +120,23 @@ describe('InviteService', () => {
       // Mock Resend send
       (service as any).resend = {
         emails: {
-          send: jest.fn().mockResolvedValueOnce({ data: { id: 'msg_1' }, error: null }),
+          send: jest
+            .fn()
+            .mockResolvedValueOnce({ data: { id: 'msg_1' }, error: null }),
         },
       };
 
-      const result = await service.sendInvite('acme', 'new@example.com', 'admin', 'admin_1');
+      const result = await service.sendInvite(
+        'acme',
+        'new@example.com',
+        'admin',
+        'admin_1',
+      );
 
-      expect(result).toEqual({ message: 'Invite sent', invitationId: 'inv_123' });
+      expect(result).toEqual({
+        message: 'Invite sent',
+        invitationId: 'inv_123',
+      });
       expect((service as any).resend.emails.send).toHaveBeenCalled();
     });
 
@@ -172,12 +175,17 @@ describe('InviteService', () => {
         emails: {
           send: jest.fn().mockResolvedValueOnce({
             data: null,
-            error: { name: 'validation_error', message: 'You can only send to your own email address' },
+            error: {
+              name: 'validation_error',
+              message: 'You can only send to your own email address',
+            },
           }),
         },
       };
 
-      await expect(service.sendInvite('acme', 'other@example.com')).rejects.toThrow(
+      await expect(
+        service.sendInvite('acme', 'other@example.com'),
+      ).rejects.toThrow(
         'Resend test domain (onboarding@resend.dev) can only send emails to your verified account email',
       );
     });
@@ -228,7 +236,9 @@ describe('InviteService', () => {
         }),
       });
 
-      await expect(service.revokeInvitation('acme', 'inv_999')).rejects.toThrow(NotFoundException);
+      await expect(service.revokeInvitation('acme', 'inv_999')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });
