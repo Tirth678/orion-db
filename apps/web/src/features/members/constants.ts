@@ -2,6 +2,7 @@ export const MEMBERS_INTENT = {
   INVITE: 'INVITE',
   UPDATE_ROLE: 'UPDATE_ROLE',
   REMOVE: 'REMOVE',
+  REVOKE_INVITE: 'REVOKE_INVITE',
 } as const;
 
 export type MembersIntent =

@@ -1,5 +1,8 @@
 import { MembersClient } from '@/features/members/members-client';
-import { retrieveMembersFromApi } from '@/features/members/members-helpers.server';
+import {
+  retrieveInvitationsFromApi,
+  retrieveMembersFromApi,
+} from '@/features/members/members-helpers.server';
 import { retrieveOrganizationBySlugFromApi } from '@/features/organization/organization-helpers.server';
 
 export default async function MembersSettingsPage({
@@ -9,9 +12,10 @@ export default async function MembersSettingsPage({
 }) {
   const { slug } = await params;
 
-  const [org, members] = await Promise.all([
+  const [org, members, invitations] = await Promise.all([
     retrieveOrganizationBySlugFromApi(slug),
     retrieveMembersFromApi(slug),
+    retrieveInvitationsFromApi(slug),
   ]);
 
   return (
@@ -22,7 +26,12 @@ export default async function MembersSettingsPage({
           Manage who has access to {org.name}
         </p>
       </div>
-      <MembersClient slug={slug} members={members} currentUserRole={org.role} />
+      <MembersClient
+        slug={slug}
+        members={members}
+        invitations={invitations}
+        currentUserRole={org.role}
+      />
     </div>
   );
 }

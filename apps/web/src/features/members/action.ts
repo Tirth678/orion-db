@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { membersServerSchema } from './server.schema';
 import { MEMBERS_INTENT } from './constants';
 import { COOKIE_KEYS } from '@orion/constants';
+import type { OrgRole } from '@orion/types';
 import { retrieveTokenFromCookie } from '@/server-utils/utils';
 import apiClient from '@/lib/axios';
 
@@ -30,9 +31,10 @@ export async function membersAction(
   try {
     switch (intent) {
       case MEMBERS_INTENT.INVITE: {
+        const inviteData = data as { email: string; role?: OrgRole };
         await apiClient.post(
           `/orgs/${slug}/members/invite`,
-          { email: (data as { email: string }).email },
+          { email: inviteData.email, role: inviteData.role },
           { headers: { Cookie: `${COOKIE_KEYS.ACCESS_TOKEN}=${token}` } },
         );
         revalidatePath(`/organizations/${slug}/settings/members`);
@@ -57,6 +59,18 @@ export async function membersAction(
         });
         revalidatePath(`/organizations/${slug}/settings/members`);
         return { success: 'Member removed' };
+      }
+
+      case MEMBERS_INTENT.REVOKE_INVITE: {
+        const { invitationId } = data as { invitationId: string };
+        await apiClient.delete(
+          `/orgs/${slug}/members/invitations/${invitationId}`,
+          {
+            headers: { Cookie: `${COOKIE_KEYS.ACCESS_TOKEN}=${token}` },
+          },
+        );
+        revalidatePath(`/organizations/${slug}/settings/members`);
+        return { success: 'Invitation revoked' };
       }
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

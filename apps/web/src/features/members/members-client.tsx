@@ -14,7 +14,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ORG_ROLES } from '@orion/constants';
-import { OrgMemberWithUser, OrgRole } from '@orion/types';
+import type {
+  OrgInvitationWithInviter,
+  OrgMemberWithUser,
+  OrgRole,
+} from '@orion/types';
 import { membersAction } from './action';
 import { Controller, useForm } from 'react-hook-form';
 import z from 'zod';
@@ -26,11 +30,13 @@ import { Badge } from '@/components/ui/badge';
 interface MembersClientProps {
   slug: string;
   members: OrgMemberWithUser[];
+  invitations?: OrgInvitationWithInviter[];
   currentUserRole: OrgRole;
 }
 
 export function MembersClient({
   currentUserRole,
+  invitations = [],
   members,
   slug,
 }: MembersClientProps) {
@@ -40,7 +46,7 @@ export function MembersClient({
 
   const form = useForm<z.infer<typeof inviteSchema>>({
     resolver: zodResolver(inviteSchema),
-    defaultValues: { email: '' },
+    defaultValues: { email: '', role: ORG_ROLES.DEVELOPER },
   });
 
   return (
@@ -65,7 +71,7 @@ export function MembersClient({
                 const ok = await form.trigger(undefined, { shouldFocus: true });
                 if (!ok) e.preventDefault();
               }}
-              className="flex gap-2"
+              className="flex flex-col sm:flex-row gap-2"
             >
               <FieldGroup className="flex-1">
                 <Controller
@@ -86,6 +92,17 @@ export function MembersClient({
                   )}
                 />
               </FieldGroup>
+
+              <Select name="role" defaultValue={ORG_ROLES.DEVELOPER}>
+                <SelectTrigger className="w-full sm:w-36">
+                  <SelectValue placeholder="Role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ORG_ROLES.DEVELOPER}>Developer</SelectItem>
+                  <SelectItem value={ORG_ROLES.ADMIN}>Admin</SelectItem>
+                </SelectContent>
+              </Select>
+
               <Button
                 type="submit"
                 name="intent"
@@ -95,6 +112,69 @@ export function MembersClient({
                 Send invite
               </Button>
             </form>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Pending Invitations — admin only ───────────────────────── */}
+      {isAdmin && invitations.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              Pending Invitations ({invitations.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="divide-y divide-border">
+            {invitations.map((invite) => {
+              const hoursLeft = Math.max(
+                0,
+                Math.round(
+                  (new Date(invite.expiresAt).getTime() - Date.now()) /
+                    (1000 * 60 * 60),
+                ),
+              );
+
+              return (
+                <div
+                  key={invite.id}
+                  className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
+                >
+                  <div>
+                    <p className="text-sm font-medium">{invite.email}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {invite.inviter?.name
+                        ? `Invited by ${invite.inviter.name} • `
+                        : ''}
+                      Expires in {hoursLeft}h
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="capitalize text-xs">
+                      {invite.role}
+                    </Badge>
+                    <form action={formAction}>
+                      <input
+                        type="hidden"
+                        name="invitationId"
+                        value={invite.id}
+                      />
+                      <Button
+                        type="submit"
+                        name="intent"
+                        value={MEMBERS_INTENT.REVOKE_INVITE}
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs text-destructive hover:text-destructive"
+                        disabled={isPending}
+                      >
+                        Revoke
+                      </Button>
+                    </form>
+                  </div>
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
       )}
@@ -135,14 +215,7 @@ export function MembersClient({
                 {isAdmin ? (
                   <form action={formAction}>
                     <input type="hidden" name="memberId" value={member.id} />
-                    <Select
-                      name="role"
-                      defaultValue={member.role}
-                      onValueChange={(value) => {
-                        const form = document.createElement('form');
-                        // handled by the select's own form submission below
-                      }}
-                    >
+                    <Select name="role" defaultValue={member.role}>
                       <SelectTrigger className="h-7 text-xs w-28">
                         <SelectValue />
                       </SelectTrigger>
@@ -159,7 +232,7 @@ export function MembersClient({
                       value={MEMBERS_INTENT.UPDATE_ROLE}
                       size="sm"
                       variant="ghost"
-                      className="h-7 text-xs"
+                      className="h-7 text-xs ml-1"
                       disabled={isPending}
                     >
                       Save
@@ -171,7 +244,7 @@ export function MembersClient({
                   </Badge>
                 )}
 
-                {/* remove button — admin only, can't remove self */}
+                {/* remove button — admin only */}
                 {isAdmin && (
                   <form action={formAction}>
                     <input type="hidden" name="memberId" value={member.id} />

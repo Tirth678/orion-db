@@ -16,4 +16,8 @@ export const membersServerSchema = z.discriminatedUnion('intent', [
     intent: z.literal(MEMBERS_INTENT.REMOVE),
     memberId: z.string(),
   }),
+  z.object({
+    intent: z.literal(MEMBERS_INTENT.REVOKE_INVITE),
+    invitationId: z.string().min(1),
+  }),
 ]);
