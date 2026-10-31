@@ -220,3 +220,4 @@ pnpm --filter api test src/members/invite.service.spec.ts src/auth/auth.controll
 ### Frontend Builds & Linting
 - **ESLint**: Clean across `apps/web` (0 errors, 0 warnings on modified files).
 - **Next.js Production Build**: `$ next build` generates static and dynamic routes including `/accept-invite`.
+
