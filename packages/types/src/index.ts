@@ -9,6 +9,8 @@ export interface User {
 
 export type OrgRole = 'admin' | 'developer';
 
+export type OrgInviteStatus = 'pending' | 'accepted' | 'revoked' | 'expired';
+
 export interface Organization {
   id: string;
   name: string;
@@ -83,6 +85,27 @@ export interface OrgMemberWithUser {
 
 export interface InviteMemberInput {
   email: string;
+  role?: OrgRole;
+}
+
+export interface OrgInvitation {
+  id: string;
+  orgId: string;
+  email: string;
+  role: OrgRole;
+  status: OrgInviteStatus;
+  invitedBy: string | null;
+  expiresAt: string;
+  createdAt: string;
+  acceptedAt: string | null;
+}
+
+export interface OrgInvitationWithInviter extends OrgInvitation {
+  inviter?: {
+    id: string;
+    name: string | null;
+    email: string;
+  } | null;
 }
 
 export interface UpdateRoleInput {

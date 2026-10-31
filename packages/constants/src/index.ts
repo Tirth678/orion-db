@@ -8,6 +8,16 @@ export const ORG_ROLES = {
   DEVELOPER: 'developer',
 } as const;
 
+export const ORG_INVITE_STATUS = {
+  PENDING: 'pending',
+  ACCEPTED: 'accepted',
+  REVOKED: 'revoked',
+  EXPIRED: 'expired',
+} as const;
+
+export type OrgInviteStatus =
+  (typeof ORG_INVITE_STATUS)[keyof typeof ORG_INVITE_STATUS];
+
 export const INVITE_EXPIRES_IN = '24h';
 
 export const PROJECT_KEY_ROLES = {
