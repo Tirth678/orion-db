@@ -125,29 +125,20 @@ export function MembersClient({
             </CardTitle>
           </CardHeader>
           <CardContent className="divide-y divide-border">
-            {invitations.map((invite) => {
-              const hoursLeft = Math.max(
-                0,
-                Math.round(
-                  (new Date(invite.expiresAt).getTime() - Date.now()) /
-                    (1000 * 60 * 60),
-                ),
-              );
-
-              return (
-                <div
-                  key={invite.id}
-                  className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
-                >
-                  <div>
-                    <p className="text-sm font-medium">{invite.email}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {invite.inviter?.name
-                        ? `Invited by ${invite.inviter.name} • `
-                        : ''}
-                      Expires in {hoursLeft}h
-                    </p>
-                  </div>
+            {invitations.map((invite) => (
+              <div
+                key={invite.id}
+                className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
+              >
+                <div>
+                  <p className="text-sm font-medium">{invite.email}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {invite.inviter?.name
+                      ? `Invited by ${invite.inviter.name} • `
+                      : ''}
+                    Expires on {new Date(invite.expiresAt).toLocaleDateString()}
+                  </p>
+                </div>
 
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="capitalize text-xs">
@@ -173,8 +164,7 @@ export function MembersClient({
                     </form>
                   </div>
                 </div>
-              );
-            })}
+              ))}
           </CardContent>
         </Card>
       )}

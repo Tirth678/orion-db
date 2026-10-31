@@ -12,6 +12,34 @@ import {
   type InviteVerificationData,
 } from '@/features/invitation/accept-invite-client';
 
+async function verifyInviteToken(token: string): Promise<{
+  data?: InviteVerificationData;
+  error?: string;
+}> {
+  try {
+    const res = await fetch(
+      `${process.env.API_URL}/auth/invite/verify?token=${encodeURIComponent(token)}`,
+      { cache: 'no-store' },
+    );
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return {
+        error:
+          data.message || 'This invitation link is invalid or has expired.',
+      };
+    }
+
+    const data: InviteVerificationData = await res.json();
+    return { data };
+  } catch {
+    return {
+      error:
+        'Unable to verify invitation. Please check your connection and try again.',
+    };
+  }
+}
+
 export default async function AcceptInvitePage({
   searchParams,
 }: {
@@ -23,30 +51,19 @@ export default async function AcceptInvitePage({
     return <InvalidInviteMessage message="Missing invitation token." />;
   }
 
-  try {
-    const res = await fetch(
-      `${process.env.API_URL}/auth/invite/verify?token=${encodeURIComponent(token)}`,
-      { cache: 'no-store' },
-    );
+  const result = await verifyInviteToken(token);
 
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      return (
-        <InvalidInviteMessage
-          message={
-            data.message || 'This invitation link is invalid or has expired.'
-          }
-        />
-      );
-    }
-
-    const verification: InviteVerificationData = await res.json();
-    return <AcceptInviteClient token={token} verification={verification} />;
-  } catch {
+  if (result.error || !result.data) {
     return (
-      <InvalidInviteMessage message="Unable to verify invitation. Please check your connection and try again." />
+      <InvalidInviteMessage
+        message={
+          result.error || 'This invitation link is invalid or has expired.'
+        }
+      />
     );
   }
+
+  return <AcceptInviteClient token={token} verification={result.data} />;
 }
 
 function InvalidInviteMessage({ message }: { message: string }) {
