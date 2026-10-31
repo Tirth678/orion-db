@@ -11,12 +11,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { createHash } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { DrizzleService } from '../db/drizzle.service';
-import {
-  organizations,
-  orgInvitations,
-  orgMembers,
-  users,
-} from '../db/schema';
+import { organizations, orgInvitations, orgMembers, users } from '../db/schema';
 import { INVITE_EXPIRES_IN } from '@orion/constants';
 import { OrgRole } from '@orion/types';
 
@@ -281,7 +276,10 @@ export class InviteService {
       .limit(1);
 
     if (invitation) {
-      if (invitation.status !== 'pending' || invitation.expiresAt < new Date()) {
+      if (
+        invitation.status !== 'pending' ||
+        invitation.expiresAt < new Date()
+      ) {
         if (invitation.status === 'pending') {
           await this.drizzle.db
             .update(orgInvitations)
@@ -335,7 +333,10 @@ export class InviteService {
       .limit(1);
 
     if (invitation) {
-      if (invitation.status !== 'pending' || invitation.expiresAt < new Date()) {
+      if (
+        invitation.status !== 'pending' ||
+        invitation.expiresAt < new Date()
+      ) {
         if (invitation.status === 'pending') {
           await this.drizzle.db
             .update(orgInvitations)
