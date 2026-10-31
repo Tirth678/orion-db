@@ -17,6 +17,7 @@ import type { JwtPayload } from '@orion/types';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { AcceptInviteDto } from './dto/accept-invite.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { InviteService } from '../members/invite.service';
@@ -57,6 +58,12 @@ export class AuthController {
     return { message: 'Logged out successfully' };
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  me(@CurrentUser() user: JwtPayload) {
+    return user;
+  }
+
   @Post('refresh')
   @HttpCode(200)
   async refresh(
@@ -67,12 +74,6 @@ export class AuthController {
     const tokens = await this.authService.refreshTokens(refreshToken);
     this.authService.setTokenCookies(res, tokens);
     return { message: 'Tokens refreshed' };
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Get('me')
-  me(@CurrentUser() user: JwtPayload) {
-    return user;
   }
 
   @Get('google')
@@ -103,6 +104,31 @@ export class AuthController {
     return res.redirect(
       `${this.configService.get<string>('WEB_URL')}/dashboard`,
     );
+  }
+
+  @Get('invite/verify')
+  async verifyInvite(@Query('token') token: string) {
+    return this.inviteService.verifyInvite(token);
+  }
+
+  @Post('invite/accept')
+  @HttpCode(200)
+  async acceptInvitePost(
+    @Body() dto: AcceptInviteDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.inviteService.acceptInvite(dto.token, {
+      name: dto.name,
+      password: dto.password,
+    });
+    if (result.user) {
+      const tokens = this.authService.signTokens(
+        result.user.id,
+        result.user.email,
+      );
+      this.authService.setTokenCookies(res, tokens);
+    }
+    return result;
   }
 
   @Get('invite/accept')
