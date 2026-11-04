@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/table';
 import { Play, Clock, History, X } from 'lucide-react';
 import type { QueryResult, QueryHistoryItem } from '@orion/types';
+import { COOKIE_KEYS } from '@orion/constants';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
   ssr: false,
@@ -46,7 +47,7 @@ export function SqlEditorClient({
   projectSlug,
   initialHistory,
 }: SqlEditorClientProps) {
-  const [sql, setSql] = useState('SELECT * FROM users LIMIT 10;');
+  const [sql, setSql] = useState('');
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -64,11 +65,24 @@ export function SqlEditorClient({
       setResult(null);
 
       try {
+        const token = document.cookie
+          .split('; ')
+          .find((row) => row.startsWith(`${COOKIE_KEYS.ACCESS_TOKEN}=`))
+          ?.split('=')[1];
+
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+
+        if (token) {
+          headers.Cookie = `${COOKIE_KEYS.ACCESS_TOKEN}=${token}`;
+        }
+
         const res = await fetch(
           `${process.env.NEXT_PUBLIC_API_URL}/orgs/${orgSlug}/projects/${projectSlug}/sql`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             credentials: 'include',
             body: JSON.stringify({ sql: query }),
           },

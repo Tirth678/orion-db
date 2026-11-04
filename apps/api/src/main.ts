@@ -21,27 +21,27 @@ async function bootstrap() {
     }),
   );
 
-  app.enableCors({
-    origin: process.env.WEB_URL ?? 'http://localhost:3000',
-    credentials: true,
-  });
   // app.enableCors({
-  //   origin: (origin, callback) => {
-  //     // allow server-to-server / curl (no Origin header)
-  //     if (!origin) return callback(null, true);
-
-  //     const webUrl = process.env.WEB_URL ?? 'http://localhost:3000';
-  //     if (origin === webUrl) return callback(null, true);
-
-  //     // SDK demo: npx serve . from packages/orion-js (any localhost port)
-  //     if (/^http:\/\/localhost(:\d+)?$/.test(origin)) {
-  //       return callback(null, true);
-  //     }
-
-  //     callback(new Error(`CORS blocked: ${origin}`));
-  //   },
+  //   origin: process.env.WEB_URL ?? 'http://localhost:3000',
   //   credentials: true,
   // });
+  app.enableCors({
+    origin: (origin, callback) => {
+      // allow server-to-server / curl (no Origin header)
+      if (!origin) return callback(null, true);
+
+      const webUrl = process.env.WEB_URL ?? 'http://localhost:3000';
+      if (origin === webUrl) return callback(null, true);
+
+      // SDK demo: npx serve . from packages/orion-js (any localhost port)
+      if (/^http:\/\/localhost(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+
+      callback(new Error(`CORS blocked: ${origin}`));
+    },
+    credentials: true,
+  });
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);

@@ -151,7 +151,18 @@ export class ProjectApiService {
   ) {
     this.assertSafeIdentifier(tableName, 'table name');
     const schema = await this.resolveProjectSchema(projectId, projectSlug);
-    const pkColumn = await this.getPrimaryKeyColumn(schema, tableName);
+
+    let pkColumn: string;
+    try {
+      pkColumn = await this.getPrimaryKeyColumn(schema, tableName);
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw new BadRequestException(
+          `Cannot update table "${tableName}": ${error.message}. UPDATE and DELETE operations require tables to have a primary key.`,
+        );
+      }
+      throw error;
+    }
 
     const entries = Object.entries(body);
     if (entries.length === 0) {
@@ -191,7 +202,18 @@ export class ProjectApiService {
   ) {
     this.assertSafeIdentifier(tableName, 'table name');
     const schema = await this.resolveProjectSchema(projectId, projectSlug);
-    const pkColumn = await this.getPrimaryKeyColumn(schema, tableName);
+
+    let pkColumn: string;
+    try {
+      pkColumn = await this.getPrimaryKeyColumn(schema, tableName);
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw new BadRequestException(
+          `Cannot delete from table "${tableName}": ${error.message}. UPDATE and DELETE operations require tables to have a primary key.`,
+        );
+      }
+      throw error;
+    }
 
     const query = sql`
       DELETE FROM ${sql.identifier(schema)}.${sql.identifier(tableName)}

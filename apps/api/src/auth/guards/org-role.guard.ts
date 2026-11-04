@@ -48,7 +48,7 @@ export class OrgRoleGuard implements CanActivate {
       )
       .limit(1);
 
-    if (!member) throw new NotFoundException('Organization not found');
+    if (!member) throw new ForbiddenException('You do not have access to this organization');
 
     if (requiredRole && member.role !== requiredRole) {
       throw new ForbiddenException('Insufficient permissions');

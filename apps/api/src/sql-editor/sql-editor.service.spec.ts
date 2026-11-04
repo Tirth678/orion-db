@@ -19,7 +19,7 @@ describe('SqlEditorService Statement & Query Validation', () => {
     const inputSql =
       "   SELECT id, name FROM users WHERE status = 'active';   ";
 
-    const parsedStatement = (service as any).parseSingleStatement(inputSql);
+    const parsedStatements = (service as any).parseStatements(inputSql);
 
     assertAndReport(
       {
@@ -28,50 +28,46 @@ describe('SqlEditorService Statement & Query Validation', () => {
         scenario: inputSql.trim(),
         expected:
           'Parsed single SQL statement string without trailing semicolons',
-        actual: `statement="${parsedStatement}"`,
+        actual: `statements.length=${parsedStatements.length}, statement="${parsedStatements[0]}"`,
       },
       () => {
-        expect(parsedStatement).toBe(
+        expect(parsedStatements).toHaveLength(1);
+        expect(parsedStatements[0]).toBe(
           "SELECT id, name FROM users WHERE status = 'active'",
         );
       },
     );
   });
 
-  // Negative Case 1: Multiple SQL statements
-  it('SQL-02 | Multiple SQL statements execution attempt | Expected: Rejection (400)', () => {
+  // Positive Case 2: Multiple SQL statements (now allowed)
+  it('SQL-02 | Multiple SQL statements execution | Expected: Allowed (returns array)', () => {
     const multiSql = 'SELECT * FROM users; DROP TABLE users;';
 
-    let error: any;
-    try {
-      (service as any).parseSingleStatement(multiSql);
-    } catch (err) {
-      error = err;
-    }
+    const parsedStatements = (service as any).parseStatements(multiSql);
 
     assertAndReport(
       {
         id: 'SQL-02',
-        name: 'Multi-statement injection rejection',
+        name: 'Multi-statement parsing (allowed)',
         scenario: multiSql,
-        expected:
-          'HTTP 400 BadRequestException("Only one SQL statement per run...")',
-        actual: `HTTP ${error?.status || 400} BadRequest, message="${error?.message}"`,
+        expected: 'Parsed as 2 separate statements in array',
+        actual: `statements.length=${parsedStatements.length}`,
       },
       () => {
-        expect(error).toBeInstanceOf(BadRequestException);
-        expect(error.message).toContain('Only one SQL statement per run');
+        expect(parsedStatements).toHaveLength(2);
+        expect(parsedStatements[0]).toBe('SELECT * FROM users');
+        expect(parsedStatements[1]).toBe('DROP TABLE users');
       },
     );
   });
 
-  // Negative Case 2: Empty SQL query
+  // Negative Case 1: Empty SQL query
   it('SQL-03 | Empty SQL query execution attempt | Expected: Rejection (400)', () => {
     const emptySql = '   ;   ;  ';
 
     let error: any;
     try {
-      (service as any).parseSingleStatement(emptySql);
+      (service as any).parseStatements(emptySql);
     } catch (err) {
       error = err;
     }
@@ -91,13 +87,13 @@ describe('SqlEditorService Statement & Query Validation', () => {
     );
   });
 
-  // Negative Case 3: Blocked destructive statement (DROP DATABASE / TRUNCATE)
+  // Negative Case 2: Blocked destructive statement (DROP DATABASE / TRUNCATE)
   it('SQL-04 | Destructive statement check (DROP DATABASE) | Expected: Rejection (400)', () => {
     const dangerousSql = 'DROP DATABASE orion_production';
 
     let error: any;
     try {
-      service.assertAllowedStatement(dangerousSql);
+      service.assertAllowedStatements([dangerousSql]);
     } catch (err) {
       error = err;
     }
@@ -118,13 +114,13 @@ describe('SqlEditorService Statement & Query Validation', () => {
     );
   });
 
-  // Negative Case 4: Block comment bypass attempt
+  // Negative Case 3: Block comment bypass attempt
   it('SQL-05 | Block comment bypass attempt (/* comment */ DROP SCHEMA) | Expected: Rejection (400)', () => {
     const bypassSql = '/* safe comment */ DROP SCHEMA "tenant_alpha"';
 
     let error: any;
     try {
-      service.assertAllowedStatement(bypassSql);
+      service.assertAllowedStatements([bypassSql]);
     } catch (err) {
       error = err;
     }
@@ -145,13 +141,13 @@ describe('SqlEditorService Statement & Query Validation', () => {
     );
   });
 
-  // Negative Case 5: Line comment bypass attempt
+  // Negative Case 4: Line comment bypass attempt
   it('SQL-06 | Line comment bypass attempt (-- comment\\nDROP DATABASE) | Expected: Rejection (400)', () => {
     const bypassSql = '-- harmless comment\nDROP DATABASE "prod_db"';
 
     let error: any;
     try {
-      service.assertAllowedStatement(bypassSql);
+      service.assertAllowedStatements([bypassSql]);
     } catch (err) {
       error = err;
     }
@@ -172,13 +168,13 @@ describe('SqlEditorService Statement & Query Validation', () => {
     );
   });
 
-  // Negative Case 6: CTE TRUNCATE bypass attempt
+  // Negative Case 5: CTE TRUNCATE bypass attempt
   it('SQL-07 | CTE TRUNCATE bypass attempt | Expected: Rejection (400)', () => {
     const bypassSql = 'WITH cte AS (SELECT 1) TRUNCATE TABLE users';
 
     let error: any;
     try {
-      service.assertAllowedStatement(bypassSql);
+      service.assertAllowedStatements([bypassSql]);
     } catch (err) {
       error = err;
     }
@@ -199,13 +195,13 @@ describe('SqlEditorService Statement & Query Validation', () => {
     );
   });
 
-  // Negative Case 7: Arbitrary whitespace/newlines bypass attempt
+  // Negative Case 6: Arbitrary whitespace/newlines bypass attempt
   it('SQL-08 | Whitespace/newlines bypass attempt (DROP \\n\\t SCHEMA) | Expected: Rejection (400)', () => {
     const bypassSql = 'DROP \n\t  SCHEMA "tenant_alpha"';
 
     let error: any;
     try {
-      service.assertAllowedStatement(bypassSql);
+      service.assertAllowedStatements([bypassSql]);
     } catch (err) {
       error = err;
     }
@@ -226,12 +222,12 @@ describe('SqlEditorService Statement & Query Validation', () => {
     );
   });
 
-  // Positive Case 2: String literal containing blocked words is permitted
+  // Positive Case 3: String literal containing blocked words is permitted
   it('SQL-09 | String literal containing blocked keywords | Expected: Allowed (no exception)', () => {
     const benignSql =
       "SELECT * FROM audit_logs WHERE action = 'DROP DATABASE' OR action = 'TRUNCATE'";
 
-    expect(() => service.assertAllowedStatement(benignSql)).not.toThrow();
+    expect(() => service.assertAllowedStatements([benignSql])).not.toThrow();
 
     assertAndReport(
       {
@@ -247,12 +243,12 @@ describe('SqlEditorService Statement & Query Validation', () => {
     );
   });
 
-  // Positive Case 3: Semicolon within string literal or comment parsed as single statement
+  // Positive Case 4: Semicolon within string literal or comment parsed as single statement
   it('SQL-010 | Semicolon inside string literal or comment | Expected: Parsed as single statement', () => {
     const complexSql =
       "/* comment with ; semicolon */ SELECT 'first;second' AS pair;";
 
-    const parsed = (service as any).parseSingleStatement(complexSql);
+    const parsed = (service as any).parseStatements(complexSql);
 
     assertAndReport(
       {
@@ -260,10 +256,11 @@ describe('SqlEditorService Statement & Query Validation', () => {
         name: 'Semicolons in strings/comments preserved as single statement',
         scenario: complexSql,
         expected: 'Parsed as 1 statement without multi-statement error',
-        actual: `statement="${parsed}"`,
+        actual: `statements.length=${parsed.length}, statement="${parsed[0]}"`,
       },
       () => {
-        expect(parsed).toBe(
+        expect(parsed).toHaveLength(1);
+        expect(parsed[0]).toBe(
           "/* comment with ; semicolon */ SELECT 'first;second' AS pair",
         );
       },

@@ -35,18 +35,23 @@ export class ProjectApiController {
   }
 
   @Get(':table')
-  getRows(
+  async getRows(
     @Req() req: ExpressRequest,
     @Param('projectSlug') projectSlug: string,
     @Param('table') table: string,
     @Query() query: Record<string, string>,
   ) {
     const { projectId } = this.getProjectKey(req);
-    return this.projectApiService.getRows(projectId, projectSlug, table, query);
+    return await this.projectApiService.getRows(
+      projectId,
+      projectSlug,
+      table,
+      query,
+    );
   }
 
   @Post(':table')
-  insertRow(
+  async insertRow(
     @Req() req: ExpressRequest,
     @Param('projectSlug') projectSlug: string,
     @Param('table') table: string,
@@ -54,7 +59,7 @@ export class ProjectApiController {
   ) {
     this.assertWriteAccess(req);
     const { projectId } = this.getProjectKey(req);
-    return this.projectApiService.insertRow(
+    return await this.projectApiService.insertRow(
       projectId,
       projectSlug,
       table,
@@ -63,7 +68,7 @@ export class ProjectApiController {
   }
 
   @Patch(':table/:id')
-  updateRow(
+  async updateRow(
     @Req() req: ExpressRequest,
     @Param('projectSlug') projectSlug: string,
     @Param('table') table: string,
@@ -72,7 +77,7 @@ export class ProjectApiController {
   ) {
     this.assertWriteAccess(req);
     const { projectId } = this.getProjectKey(req);
-    return this.projectApiService.updateRow(
+    return await this.projectApiService.updateRow(
       projectId,
       projectSlug,
       table,
@@ -82,7 +87,7 @@ export class ProjectApiController {
   }
 
   @Delete(':table/:id')
-  deleteRow(
+  async deleteRow(
     @Req() req: ExpressRequest,
     @Param('projectSlug') projectSlug: string,
     @Param('table') table: string,
@@ -90,6 +95,11 @@ export class ProjectApiController {
   ) {
     this.assertWriteAccess(req);
     const { projectId } = this.getProjectKey(req);
-    return this.projectApiService.deleteRow(projectId, projectSlug, table, id);
+    return await this.projectApiService.deleteRow(
+      projectId,
+      projectSlug,
+      table,
+      id,
+    );
   }
 }

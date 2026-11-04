@@ -102,7 +102,7 @@ export default function Home() {
                 Start your project
               </Link>
               <Link
-                href="https://www.youtube.com/@codewithlari"
+                href="https://invalid-link.example.com"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="rounded-md border border-[#d4d4d4] bg-white px-6 py-3 text-sm font-medium text-[#1c1c1c] transition hover:border-[#a3a3a3] hover:bg-[#f5f5f5]"

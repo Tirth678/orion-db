@@ -7,8 +7,8 @@ import InkOrbitFeatures from '@/components/ui/ink-orbit-features';
  * Orion's take on the ink-orbit features bento: the three live diagrams retold
  * as realtime channels, generated REST APIs, per-project primitives and query
  * insights. The component's neutral paper/ink palette is re-pointed at the site
- * tokens, and it follows the theme toggle (not just the OS) so it never sits
- * light inside a dark page.
+ * tokens with a monochrome accent, and it follows the theme toggle (not just the OS)
+ * so it never sits light inside a dark page.
  */
 const LIGHT_VARS = {
   '--ib-page': '#fafafa',
@@ -25,7 +25,7 @@ const LIGHT_VARS = {
   '--ib-bracket': '#c4c4c4',
   '--ib-inv': '#161616',
   '--ib-inv-ink': '#fafafa',
-  '--ib-accent': '#3ecf8e',
+  '--ib-accent': '#000000',
 } as React.CSSProperties;
 
 const DARK_VARS = {
@@ -43,7 +43,7 @@ const DARK_VARS = {
   '--ib-bracket': '#444444',
   '--ib-inv': '#fafafa',
   '--ib-inv-ink': '#0a0a0a',
-  '--ib-accent': '#3ecf8e',
+  '--ib-accent': '#ffffff',
 } as React.CSSProperties;
 
 export function FeaturesShowcase() {

@@ -28,7 +28,7 @@ export class SqlEditorService {
     /\bTRUNCATE\b/i,
   ];
 
-  private parseSingleStatement(querySql: string): string {
+  private parseStatements(querySql: string): string[] {
     const statements: string[] = [];
     let current = '';
     let i = 0;
@@ -146,13 +146,7 @@ export class SqlEditorService {
       throw new BadRequestException('SQL query cannot be empty');
     }
 
-    if (statements.length > 1) {
-      throw new BadRequestException(
-        'Only one SQL statement per run. Remove extra statements after a semicolon (e.g. a trailing SELECT).',
-      );
-    }
-
-    return statements[0];
+    return statements;
   }
 
   private stripCommentsAndStrings(sql: string): string {
@@ -245,14 +239,16 @@ export class SqlEditorService {
     return result;
   }
 
-  assertAllowedStatement(statement: string): void {
-    const stripped = this.stripCommentsAndStrings(statement);
-    if (
-      SqlEditorService.BLOCKED_PATTERNS.some((pattern) =>
-        pattern.test(stripped),
-      )
-    ) {
-      throw new BadRequestException('This statement is not allowed');
+  assertAllowedStatements(statements: string[]): void {
+    for (const statement of statements) {
+      const stripped = this.stripCommentsAndStrings(statement);
+      if (
+        SqlEditorService.BLOCKED_PATTERNS.some((pattern) =>
+          pattern.test(stripped),
+        )
+      ) {
+        throw new BadRequestException('This statement is not allowed');
+      }
     }
   }
 
@@ -307,9 +303,9 @@ export class SqlEditorService {
     querySql: string,
   ): Promise<QueryResult> {
     const project = await this.getProject(orgSlug, projectSlug);
-    const statement = this.parseSingleStatement(querySql);
+    const statements = this.parseStatements(querySql);
 
-    this.assertAllowedStatement(statement);
+    this.assertAllowedStatements(statements);
 
     this.assertSafeIdentifier(project.dbSchema, 'project schema');
 
@@ -321,15 +317,30 @@ export class SqlEditorService {
       const results = await neonSql.transaction(
         (txn) => [
           txn`SET LOCAL search_path TO ${txn.unsafe(`"${project.dbSchema}", public`)}`,
-          txn`${txn.unsafe(statement)}`,
+          ...statements.map((stmt) => txn`${txn.unsafe(stmt)}`),
         ],
         { fullResults: true, readOnly: false },
       );
 
       const executionTimeMs = Date.now() - start;
-      const { rows, rowCount, command } = this.normalizePgResult(
-        results[results.length - 1],
-      );
+
+      // Find the last SELECT statement to return its results
+      let lastSelectResult: {
+        rows: Record<string, unknown>[];
+        rowCount: number;
+        command: string;
+      } | null = null;
+      for (let i = results.length - 1; i >= 0; i--) {
+        const result = this.normalizePgResult(results[i]);
+        if (result.command === 'SELECT') {
+          lastSelectResult = result;
+          break;
+        }
+      }
+
+      // If no SELECT, return the last statement's result
+      const finalResult = lastSelectResult || this.normalizePgResult(results[results.length - 1]);
+      const { rows, rowCount, command } = finalResult;
       const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
 
       await this.drizzle.db.insert(queryHistory).values({
